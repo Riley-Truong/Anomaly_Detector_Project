@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SkyScan - Parallel Weather Anomaly Detector
+ 
+# These settings apply to ALL functions unless overridden
+Globals:
+  Function:
+    Runtime: python3.11    # Python version to use
+    Timeout: 60            # Kill the function if it runs longer than 60 seconds
+    MemorySize: 128        # RAM allocation in MB (minimum, stays in free tier)
+ 
+Resources:
+ 
+  # ── The Worker Function ──────────────────────────────────────────
+  SkyScanWorker:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SkyScanWorker
+      CodeUri: worker/           # folder containing app.py
+      Handler: app.lambda_handler  # filename.function_name
+      Policies:
+        # This grants the worker permission to read/write DynamoDB
+        - DynamoDBCrudPolicy:
+            TableName: Anomaly_Detector_Results
+ 
+  # ── The Coordinator Function ─────────────────────────────────────
+  SkyScanCoordinator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SkyScanCoordinator
+      CodeUri: coordinator/
+      Handler: app.lambda_handler
+      Policies:
+        # This grants the coordinator permission to invoke the worker
+        - LambdaInvokePolicy:
+            FunctionName: SkyScanWorker
+      Events:
+        # This sets up the automatic daily schedule
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            # cron format: (minutes hours day month weekday year)
+            # 0 12 * * ? * = every day at 12:00 UTC = 8:00 AM Eastern
+            Schedule: cron(0 12 * * ? *)
+            Description: Run SkyScan every morning at 8 AM Eastern
+            Enabled: true
