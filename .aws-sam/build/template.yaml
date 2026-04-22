@@ -1,38 +1,40 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SkyScan - Parallel Weather Anomaly Detector
+Description: Anomaly Detector - Parallel Weather Anomaly Detector
 Globals:
   Function:
     Runtime: python3.11
     Timeout: 60
     MemorySize: 128
 Resources:
-  SkyScanWorker:
+  AnomalyDetectorWorker:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: SkyScanWorker
-      CodeUri: SkyScanWorker
+      FunctionName: AnomalyDetectorWorker
+      CodeUri: AnomalyDetectorWorker
       Handler: app.lambda_handler
       Policies:
       - DynamoDBCrudPolicy:
           TableName: Anomaly_Detector_Results
+      - S3CrudPolicy:
+          BucketName: anomaly-detector-dashboard
     Metadata:
-      SamResourceId: SkyScanWorker
-  SkyScanCoordinator:
+      SamResourceId: AnomalyDetectorWorker
+  AnomalyDetectorCoordinator:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: SkyScanCoordinator
-      CodeUri: SkyScanCoordinator
+      FunctionName: AnomalyDetectorCoordinator
+      CodeUri: AnomalyDetectorCoordinator
       Handler: app.lambda_handler
       Policies:
       - LambdaInvokePolicy:
-          FunctionName: SkyScanWorker
+          FunctionName: AnomalyDetectorWorker
       Events:
         DailySchedule:
           Type: Schedule
           Properties:
             Schedule: cron(0 12 * * ? *)
-            Description: Run SkyScan every morning at 8 AM Eastern
+            Description: Run Anomaly Detector every morning at 8 AM Eastern
             Enabled: true
     Metadata:
-      SamResourceId: SkyScanCoordinator
+      SamResourceId: AnomalyDetectorCoordinator
