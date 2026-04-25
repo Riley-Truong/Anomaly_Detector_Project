@@ -1,40 +1,82 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Anomaly Detector - Parallel Weather Anomaly Detector
-
+Description: Anomaly Detector v2 - Multi-Source Parallel Processing
+ 
 Globals:
   Function:
     Runtime: python3.11
-    Timeout: 60
+    Timeout: 120
     MemorySize: 128
-
+ 
 Resources:
-
-  AnomalyDetectorWorker:
+ 
+  AnomalyDetectorWorkerForecast:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: AnomalyDetectorWorker
-      CodeUri: worker/
+      FunctionName: AnomalyDetectorWorkerForecast
+      CodeUri: worker_forecast/
       Handler: app.lambda_handler
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Anomaly_Detector_Results
-        - S3CrudPolicy:
-            BucketName: anomaly-detector-dashboard
-
+ 
+  AnomalyDetectorWorkerArchive:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AnomalyDetectorWorkerArchive
+      CodeUri: worker_archive/
+      Handler: app.lambda_handler
+      Timeout: 180
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Anomaly_Detector_Results
+ 
+  AnomalyDetectorWorkerNWS:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AnomalyDetectorWorkerNWS
+      CodeUri: worker_nws/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Anomaly_Detector_Results
+ 
   AnomalyDetectorCoordinator:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: AnomalyDetectorCoordinator
       CodeUri: coordinator/
       Handler: app.lambda_handler
+      Timeout: 60
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: AD_Time_Results
         - LambdaInvokePolicy:
-            FunctionName: AnomalyDetectorWorker
+            FunctionName: AnomalyDetectorWorkerForecast
+        - LambdaInvokePolicy:
+            FunctionName: AnomalyDetectorWorkerArchive
+        - LambdaInvokePolicy:
+            FunctionName: AnomalyDetectorWorkerNWS
       Events:
         DailySchedule:
           Type: Schedule
           Properties:
             Schedule: cron(0 12 * * ? *)
-            Description: Run Anomaly Detector every morning at 8 AM Eastern
             Enabled: true
+ 
+  AnomalyDetectorSequentialRunner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AnomalyDetectorSequentialRunner
+      CodeUri: sequential_sys/
+      Handler: app.lambda_handler
+      Timeout: 600
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: AD_Time_Results
+        - LambdaInvokePolicy:
+            FunctionName: AnomalyDetectorWorkerForecast
+        - LambdaInvokePolicy:
+            FunctionName: AnomalyDetectorWorkerArchive
+        - LambdaInvokePolicy:
+            FunctionName: AnomalyDetectorWorkerNWS
