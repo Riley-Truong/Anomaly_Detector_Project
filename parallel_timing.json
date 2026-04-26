@@ -1,0 +1,9 @@
+{
+  "mode": "parallel",
+  "date": "2026-04-25",
+  "dispatch_ms": 17865,
+  "cities": 30,
+  "workers_per_city": 3,
+  "total_invocations": 90,
+  "trigger": "manual"
+}

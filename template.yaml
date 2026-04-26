@@ -1,15 +1,16 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: Anomaly Detector v2 - Multi-Source Parallel Processing
- 
+
 Globals:
   Function:
     Runtime: python3.11
     Timeout: 120
     MemorySize: 128
- 
+
 Resources:
- 
+
+  # Handles cities 1-10 — Open-Meteo current conditions
   AnomalyDetectorWorkerForecast:
     Type: AWS::Serverless::Function
     Properties:
@@ -19,18 +20,21 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Anomaly_Detector_Results
- 
+
+  # Handles cities 11-20 — Open-Meteo 5-year historical average
+  # Higher timeout because it makes 50 API calls (10 cities x 5 years)
   AnomalyDetectorWorkerArchive:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: AnomalyDetectorWorkerArchive
       CodeUri: worker_archive/
       Handler: app.lambda_handler
-      Timeout: 180
+      Timeout: 300
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Anomaly_Detector_Results
- 
+
+  # Handles cities 21-30 — NWS observations and alerts
   AnomalyDetectorWorkerNWS:
     Type: AWS::Serverless::Function
     Properties:
@@ -40,7 +44,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Anomaly_Detector_Results
- 
+
+  # Fires all 3 workers simultaneously — parallel run
   AnomalyDetectorCoordinator:
     Type: AWS::Serverless::Function
     Properties:
@@ -51,6 +56,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: AD_Time_Results
+        - S3CrudPolicy:
+            BucketName: anomaly-detector-dashboard
         - LambdaInvokePolicy:
             FunctionName: AnomalyDetectorWorkerForecast
         - LambdaInvokePolicy:
@@ -62,8 +69,10 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 12 * * ? *)
+            Description: Run parallel Anomaly Detector at 8 AM Eastern
             Enabled: true
- 
+
+  # Fires workers one at a time — sequential run for benchmarking
   AnomalyDetectorSequentialRunner:
     Type: AWS::Serverless::Function
     Properties:
@@ -74,9 +83,32 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: AD_Time_Results
+        - S3CrudPolicy:
+            BucketName: anomaly-detector-dashboard
         - LambdaInvokePolicy:
             FunctionName: AnomalyDetectorWorkerForecast
         - LambdaInvokePolicy:
             FunctionName: AnomalyDetectorWorkerArchive
         - LambdaInvokePolicy:
             FunctionName: AnomalyDetectorWorkerNWS
+
+  # Aggregates worker results into the dashboard summary file
+  AnomalyDetectorAggregator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AnomalyDetectorAggregator
+      CodeUri: aggregator/
+      Handler: app.lambda_handler
+      Timeout: 120
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Anomaly_Detector_Results
+        - S3CrudPolicy:
+            BucketName: anomaly-detector-dashboard
+      Events:
+        AggregateSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 12 * * ? *)
+            Description: Combine results into dashboard JSON at 8:30 AM
+            Enabled: true

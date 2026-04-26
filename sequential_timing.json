@@ -1,0 +1,10 @@
+{
+  "mode": "sequential",
+  "date": "2026-04-25",
+  "total_ms": 35330,
+  "cities": 30,
+  "workers_per_city": 3,
+  "total_invocations": 90,
+  "completed": 90,
+  "failed": 0
+}

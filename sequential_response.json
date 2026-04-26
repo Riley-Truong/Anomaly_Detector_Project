@@ -1,1 +1,1 @@
-{"statusCode": 200, "total_ms": 239071, "city_count": 30, "total_invocations": 90, "completed": 90, "failed": 0}
+{"statusCode": 200, "total_ms": 78847, "timings": [{"worker": "AnomalyDetectorWorkerForecast", "source": "forecast", "cities": 10, "duration_ms": 7145}, {"worker": "AnomalyDetectorWorkerArchive", "source": "archive", "cities": 10, "duration_ms": 35106}, {"worker": "AnomalyDetectorWorkerNWS", "source": "nws", "cities": 10, "duration_ms": 25713}]}

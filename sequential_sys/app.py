@@ -8,16 +8,18 @@ from datetime import datetime
 lambda_client = boto3.client('lambda', region_name='us-east-2')
 dynamodb      = boto3.resource('dynamodb', region_name='us-east-2')
 timing_table  = dynamodb.Table('AD_Time_Results')
+s3_client     = boto3.client('s3', region_name='us-east-2')
+S3_BUCKET     = 'anomaly-detector-dashboard'
 
 ATLANTA_LAT   = 33.7490
 ATLANTA_LON   = -84.3880
 SEARCH_RADIUS = 50000
 CITY_LIMIT    = 30
 
-WORKERS = [
-    'AnomalyDetectorWorkerForecast',
-    'AnomalyDetectorWorkerArchive',
-    'AnomalyDetectorWorkerNWS',
+WORKER_ASSIGNMENTS = [
+    {'function': 'AnomalyDetectorWorkerForecast', 'source': 'forecast', 'slice': (0, 10)},
+    {'function': 'AnomalyDetectorWorkerArchive',  'source': 'archive',  'slice': (10, 20)},
+    {'function': 'AnomalyDetectorWorkerNWS',      'source': 'nws',      'slice': (20, 30)},
 ]
 
 
@@ -28,15 +30,12 @@ def get_cities_near_atlanta():
     out {CITY_LIMIT};
     """
     url = "https://overpass-api.de/api/interpreter?data=" + urllib.parse.quote(query.strip())
-
     try:
         req = urllib.request.Request(
-            url,
-            headers={'User-Agent': 'AnomalyDetector/2.0 (student-project)'}
+            url, headers={'User-Agent': 'AnomalyDetector/2.0 (student-project)'}
         )
         with urllib.request.urlopen(req, timeout=15) as response:
             data = json.loads(response.read().decode('utf-8'))
-
         cities = []
         for element in data.get('elements', []):
             if 'tags' in element and 'name' in element['tags']:
@@ -45,12 +44,9 @@ def get_cities_near_atlanta():
                     'lat':  element['lat'],
                     'lon':  element['lon']
                 })
-
-        print(f"Found {len(cities)} cities near Atlanta")
         return cities
-
     except Exception as e:
-        print(f"Overpass API failed: {e}. Using fallback cities.")
+        print(f"Overpass failed: {e}. Using fallback.")
         return get_fallback_cities()
 
 
@@ -92,61 +88,93 @@ def get_fallback_cities():
 def lambda_handler(event, context):
     today       = datetime.utcnow().strftime('%Y-%m-%d')
     total_start = int(time.time() * 1000)
+    timings     = []
 
-    # Fetch the same 30 Atlanta-area cities as the coordinator
-    # No cap — full 30 cities so the comparison is fair
-    cities = get_cities_near_atlanta()
+    all_cities = get_cities_near_atlanta()
+    if len(all_cities) < 30:
+        all_cities = get_fallback_cities()
 
-    print(f"Sequential benchmark: {len(cities)} cities x {len(WORKERS)} workers")
-    print(f"Total calls to make: {len(cities) * len(WORKERS)} (one at a time)")
+    print(f"Sequential benchmark: {len(WORKER_ASSIGNMENTS)} workers, one at a time")
 
-    completed  = 0
-    failed     = 0
+    for assignment in WORKER_ASSIGNMENTS:
+        start_idx  = assignment['slice'][0]
+        end_idx    = assignment['slice'][1]
+        city_slice = all_cities[start_idx:end_idx]
 
-    for city in cities:
-        for worker_name in WORKERS:
-            try:
-                # RequestResponse = wait for this worker to fully finish
-                # before moving to the next one — this is sequential
-                lambda_client.invoke(
-                    FunctionName   = worker_name,
-                    InvocationType = 'RequestResponse',
-                    Payload        = json.dumps(city).encode('utf-8')
-                )
-                completed += 1
-            except Exception as e:
-                print(f"Error: {worker_name} for {city['name']}: {e}")
-                failed += 1
+        payload = {
+            'cities': city_slice,
+            'source': assignment['source'],
+            'date':   today
+        }
 
-            print(f"Done {completed} of {len(cities) * len(WORKERS)}: {city['name']} | {worker_name}")
+        w_start = int(time.time() * 1000)
+        print(f"Starting {assignment['function']} ({assignment['source']}, {len(city_slice)} cities)...")
+
+        try:
+            # RequestResponse = wait for this worker to fully finish
+            # before moving to the next one — this is what makes it sequential
+            response = lambda_client.invoke(
+                FunctionName   = assignment['function'],
+                InvocationType = 'RequestResponse',
+                Payload        = json.dumps(payload).encode('utf-8')
+            )
+            result = json.loads(response['Payload'].read())
+            print(f"Finished {assignment['source']}: {result}")
+        except Exception as e:
+            print(f"Error on {assignment['function']}: {e}")
+            result = {'error': str(e)}
+
+        w_dur = int(time.time() * 1000) - w_start
+        timings.append({
+            'worker':   assignment['function'],
+            'source':   assignment['source'],
+            'cities':   len(city_slice),
+            'duration_ms': w_dur
+        })
+        print(f"{assignment['source']} completed in {w_dur}ms")
 
     total_ms = int(time.time() * 1000) - total_start
-
     print(f"Sequential TOTAL: {total_ms}ms")
-    print(f"Completed: {completed}  Failed: {failed}")
 
-    # Save clean timing record — no breakdown column
+    # Save to DynamoDB
     try:
         timing_table.put_item(Item={
             'runID':             f"{today}#sequential",
             'src':               'sequential_total',
             'date':              today,
             'mode':              'sequential',
-            'cities':            str(len(cities)),
-            'workers_per_city':  str(len(WORKERS)),
-            'total_invocations': str(len(cities) * len(WORKERS)),
-            'completed':         str(completed),
-            'failed':            str(failed),
+            'workers':           str(len(WORKER_ASSIGNMENTS)),
+            'cities_per_worker': '10',
+            'total_cities':      '30',
             'duration_ms':       str(total_ms),
+            'breakdown':         json.dumps(timings),
         })
     except Exception as e:
-        print(f"Could not save timing record: {e}")
+        print(f"Could not save to DynamoDB: {e}")
+
+    # Save to S3 for dashboard
+    try:
+        timing_data = {
+            'mode':              'sequential',
+            'date':              today,
+            'total_ms':          total_ms,
+            'workers':           len(WORKER_ASSIGNMENTS),
+            'cities_per_worker': 10,
+            'total_cities':      30,
+            'timings':           timings,
+        }
+        s3_client.put_object(
+            Bucket      = S3_BUCKET,
+            Key         = f"timing/{today}_sequential.json",
+            Body        = json.dumps(timing_data).encode('utf-8'),
+            ContentType = 'application/json',
+        )
+        print(f"Wrote sequential timing to S3")
+    except Exception as e:
+        print(f"Could not write to S3: {e}")
 
     return {
-        'statusCode':        200,
-        'total_ms':          total_ms,
-        'city_count':        len(cities),
-        'total_invocations': len(cities) * len(WORKERS),
-        'completed':         completed,
-        'failed':            failed,
+        'statusCode':  200,
+        'total_ms':    total_ms,
+        'timings':     timings
     }
