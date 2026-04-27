@@ -122,7 +122,7 @@ function BenchmarkTab({ date }) {
 
   return (
     <>
-      {/* Speedup + Amdahl */}
+      {/* Speedup */}
       <div className="speedup-row">
         <div className="speedup-main">
           <div className="speedup-eyebrow">Speedup Factor</div>
@@ -131,7 +131,7 @@ function BenchmarkTab({ date }) {
         </div>
 
         <div className="amdahl-card">
-          <div className="amdahl-title">Amdahl's Law Analysis</div>
+          <div className="amdahl-title">Analysis</div>
           <div className="amdahl-row">
             <span className="amdahl-row-label">Parallel time</span>
             <span className="amdahl-row-value">{fmtMs(parMs)}</span>
@@ -474,31 +474,28 @@ function WorkersTab({ date }) {
         {WORKERS.map((w) => {
           const t = timings.find(t => (t.source || '').toLowerCase().includes(w.srcKey));
           return (
-            <div className="worker-card">
-              <div className="worker-id">Worker {w.id}</div>
-              <div className="worker-name">{w.source}</div>
-              <div className="worker-src">
-                {w.id === 'A' ? 'api.open-meteo.com/v1/forecast'
-                : w.id === 'B' ? 'archive-api.open-meteo.com/v1/archive'
-                : 'api.weather.gov'}
+            <div key={w.id} className="worker-card">
+              <div className="worker-card-left">
+                <div className="worker-id">Worker {w.id}</div>
+                <div className="worker-name">{w.source}</div>
+                <div className="worker-src">
+                  {w.id === 'A' ? 'api.open-meteo.com/v1/forecast'
+                  : w.id === 'B' ? 'archive-api.open-meteo.com/v1/archive'
+                  : 'api.weather.gov'}
+                </div>
+                <div className="worker-tag">{w.cities}</div>
               </div>
-              <div className="worker-tag">{w.cities}</div>
-              {t
-                ? <>
-                    <div className="worker-duration">
-                      {fmtSec(t.duration_ms)}<span className="unit">s</span>
-                    </div>
-                    <div style={{
-                      fontSize: 11,
-                      color: 'var(--text-4)',
-                      fontFamily: 'var(--mono)',
-                      marginTop: 4
-                    }}>
-                      sequential run
-                    </div>
-                  </>
-                : <div className="worker-no-data">no data</div>}
-            </div>          
+              <div className="worker-card-right">
+                {t
+                  ? <>
+                      <div className="worker-duration">
+                        {fmtSec(t.duration_ms)}<span className="unit">s</span>
+                      </div>
+                      <div className="worker-seq-label">sequential</div>
+                    </>
+                  : <div className="worker-no-data">no data</div>}
+              </div>
+            </div>            
             );
         })}
       </div>
@@ -719,6 +716,14 @@ function ArchiveTab() {
 // ─────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────
+// Icons for mobile nav — simple text characters, no emojis
+const TAB_ICONS = {
+  benchmark: '≋',
+  workers:   '⊞',
+  anomalies: '△',
+  archive:   '◷',
+};
+
 const TABS = [
   { id: 'benchmark', label: 'Benchmark' },
   { id: 'workers',   label: 'Workers'   },
@@ -727,35 +732,64 @@ const TABS = [
 ];
 
 export default function App() {
-  const [tab, setTab] = useState('benchmark');
+  const [tab,      setTab]      = useState('benchmark');
+  const [dark,     setDark]     = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const date = todayStr();
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  }, [dark]);
+
+  // Close menu when tab changes
+  const handleTabChange = (id) => {
+    setTab(id);
+    setMenuOpen(false);
+  };
+
   const tabTitles = {
-    benchmark: { title: 'Parallel vs. Sequential Benchmark',     desc: 'Measuring the speedup of running 3 workers simultaneously versus sequentially.' },
-    workers: { title: 'Worker Assignments', desc: '30 cities split across 3 workers, each calling a different data source. Sequential timing shown per worker.' },    
-    anomalies: { title: 'Weather Anomaly Results',             desc: 'Cities deviating more than 10°F from their 5-year historical average for the same week.' },
-    archive:   { title: 'Historical Records',                    desc: 'Browse benchmark and anomaly data from previous days.' },
+    benchmark: { title: 'Parallel vs. Sequential Benchmark', desc: 'Measuring the speedup of running 3 workers simultaneously versus sequentially.' },
+    workers:   { title: 'Worker Assignments',                desc: '30 cities split across 3 workers, each calling a different data source. Sequential timing shown per worker.' },
+    anomalies: { title: 'Weather Anomaly Results',           desc: 'Cities deviating more than 10°F from their 5-year historical average for the same week.' },
+    archive:   { title: 'Historical Records',                desc: 'Browse benchmark and anomaly data from previous days.' },
   };
 
   return (
-    <div className="app">
+    <div className="app" style={{ position: 'relative' }}>
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">
             <div className="brand-mark" />
             Anomaly Detector
           </div>
+
+          {/* Desktop nav — visible at 900px+ */}
           <nav className="nav">
             {TABS.map(t => (
               <button key={t.id}
                 className={`nav-btn${tab === t.id ? ' active' : ''}`}
-                onClick={() => setTab(t.id)}>
+                onClick={() => handleTabChange(t.id)}>
                 {t.label}
               </button>
             ))}
           </nav>
+
+          {/* Hamburger — visible between 600px and 899px */}
+          <button
+            className="hamburger"
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Toggle navigation"
+          >
+            <span className="hamburger-line" />
+            <span className="hamburger-line" />
+            <span className="hamburger-line" />
+          </button>
         </div>
+
         <div className="topbar-right">
+          <button className="theme-btn" onClick={() => setDark(d => !d)}>
+            {dark ? 'Light' : 'Dark'}
+          </button>
           <span className="live-badge">
             <span className="live-dot" />
             Live
@@ -763,6 +797,19 @@ export default function App() {
           <span className="date-chip">{date}</span>
         </div>
       </header>
+
+      {/* Dropdown menu — only renders when open */}
+      {menuOpen && (
+        <div className="nav-dropdown">
+          {TABS.map(t => (
+            <button key={t.id}
+              className={`nav-btn${tab === t.id ? ' active' : ''}`}
+              onClick={() => handleTabChange(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <main className="page">
         <div className="page-header">
@@ -775,6 +822,18 @@ export default function App() {
         {tab === 'anomalies' && <AnomalyTab   date={date} />}
         {tab === 'archive'   && <ArchiveTab />}
       </main>
+
+      {/* Mobile bottom nav — visible below 600px */}
+      <nav className="mobile-nav">
+        {TABS.map(t => (
+          <button key={t.id}
+            className={`mobile-nav-btn${tab === t.id ? ' active' : ''}`}
+            onClick={() => handleTabChange(t.id)}>
+            <span className="mobile-nav-icon">{TAB_ICONS[t.id]}</span>
+            {t.label}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
