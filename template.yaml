@@ -69,7 +69,7 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 12 * * ? *)
-            Description: Run parallel Anomaly Detector at 8 AM Eastern
+            Description: Run parallel Anomaly Detector at 8 AM EST
             Enabled: true
 
   # Fires workers one at a time — sequential run for benchmarking
@@ -91,6 +91,14 @@ Resources:
             FunctionName: AnomalyDetectorWorkerArchive
         - LambdaInvokePolicy:
             FunctionName: AnomalyDetectorWorkerNWS
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 12 * * ? *)
+            Description: Run parallel Anomaly Detector at 8 AM EST
+            Enabled: true
+
 
   # Aggregates worker results into the dashboard summary file
   AnomalyDetectorAggregator:
@@ -99,7 +107,7 @@ Resources:
       FunctionName: AnomalyDetectorAggregator
       CodeUri: aggregator/
       Handler: app.lambda_handler
-      Timeout: 120
+      Timeout: 600          # increased from 120 — weather fetching takes time
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Anomaly_Detector_Results
@@ -110,5 +118,5 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(30 12 * * ? *)
-            Description: Combine results into dashboard JSON at 8:30 AM
+            Description: Run aggregate anomaly detector at 8 AM EST
             Enabled: true
