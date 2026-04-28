@@ -691,7 +691,7 @@ function ArchiveTab() {
           onChange={e => setSelDate(e.target.value)} />
         {selDate && (
           <div className="sub-tabs">
-            {['benchmark', 'workers', 'anomalies'].map(t => (
+            {['benchmark', 'workers', 'single', 'anomalies'].map(t => (
               <button key={t}
                 className={`sub-tab${subTab === t ? ' active' : ''}`}
                 onClick={() => setSubTab(t)}>
@@ -714,21 +714,267 @@ function ArchiveTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// SINGLE WORKER TAB
+// One Lambda doing all the work vs 3 parallel workers
+// ─────────────────────────────────────────────────────────────────
+function SingleWorkerTab({ date }) {
+  const { data: singleData, loading: sl } = useS3(date ? `timing/${date}_single.json`     : null);
+  const { data: parData,    loading: pl } = useS3(date ? `timing/${date}_parallel.json`   : null);
+  const { data: seqData,    loading: ql } = useS3(date ? `timing/${date}_sequential.json` : null);
+  const loading = sl || pl || ql;
+
+  const unwrap = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'object' && 'S' in v) return v.S;
+    if (typeof v === 'object' && 'N' in v) return v.N;
+    return v;
+  };
+
+  const singleMs = parseFloat(unwrap(singleData?.total_ms) ?? unwrap(singleData?.duration_ms)) || null;
+  const parMs    = parseFloat(unwrap(parData?.dispatch_ms) ?? unwrap(parData?.duration_ms))    || null;
+  const seqMs    = parseFloat(unwrap(seqData?.total_ms)    ?? unwrap(seqData?.duration_ms))    || null;
+
+  const timings  = singleData?.timings || [];
+
+  // Speedup: single vs parallel
+  const vsParallel   = singleMs && parMs  ? (singleMs / parMs).toFixed(2)  : null;
+  // Speedup: single vs sequential
+  const vsSequential = singleMs && seqMs  ? (singleMs / seqMs).toFixed(2)  : null;
+
+  if (loading) return <Empty loading title="Loading single worker data..." />;
+
+  if (!singleMs) return (
+    <Empty title="No single worker data for this date."
+      sub="Trigger AnomalyDetectorWorkerSingle then refresh." />
+  );
+
+  return (
+    <>
+      {/* What this is */}
+      <div style={{
+        background: 'var(--bg)', border: '1px solid var(--border)',
+        borderRadius: 'var(--r)', padding: '12px 16px',
+        marginBottom: 16, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6,
+      }}>
+        A single Lambda function processes all 30 cities alone — forecast for cities 1–10,
+        archive for 11–20, and NWS for 21–30 — switching between APIs sequentially.
+        This is compared against the 3-worker parallel run and the 3-worker sequential run.
+      </div>
+
+      {/* Three-way metric comparison */}
+      <div className="metrics">
+        <div className="metric">
+          <div className="metric-label">Single worker</div>
+          <div className="metric-value">{fmtSec(singleMs)}</div>
+          <div className="metric-sub">seconds total</div>
+        </div>
+        <div className="metric amber">
+          <div className="metric-label">Sequential (3 workers)</div>
+          <div className="metric-value">{fmtSec(seqMs) ?? '—'}</div>
+          <div className="metric-sub">seconds total</div>
+        </div>
+        <div className="metric blue">
+          <div className="metric-label">Parallel (3 workers)</div>
+          <div className="metric-value">{fmtSec(parMs) ?? '—'}</div>
+          <div className="metric-sub">seconds dispatch</div>
+        </div>
+        {vsSequential && (
+          <div className="metric">
+            <div className="metric-label">vs Sequential</div>
+            <div className="metric-value">{parseFloat(vsSequential) > 1 ? vsSequential + 'x slower' : (1/parseFloat(vsSequential)).toFixed(2) + 'x faster'}</div>
+            <div className="metric-sub">single vs 3-worker seq</div>
+          </div>
+        )}
+        {vsParallel && (
+          <div className="metric">
+            <div className="metric-label">vs Parallel</div>
+            <div className="metric-value">{vsParallel}x</div>
+            <div className="metric-sub">parallel advantage</div>
+          </div>
+        )}
+      </div>
+
+      {/* Single worker segment breakdown */}
+      {timings.length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Single Worker — Segment Breakdown</span>
+            <span className="card-hint">Phase A + B + C + overhead = total single worker time</span>
+          </div>
+
+          {(() => {
+            const workerTotal = timings.reduce(
+              (sum, t) => sum + (t.duration_ms || 0),
+              0
+            );
+
+            const overheadMs =
+              singleMs && singleMs > workerTotal ? singleMs - workerTotal : 0;
+
+            return (
+              <>
+                <div className="seq-timeline" style={{ padding: 16 }}>
+                  <div className="seq-bar">
+                    {timings.map((t, i) => {
+                      const pct = singleMs
+                        ? (t.duration_ms / singleMs) * 100
+                        : 0;
+                      const cls = ['a', 'b', 'c'][i] || 'a';
+                      return (
+                        <div
+                          key={i}
+                          className={`seq-seg ${cls}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      );
+                    })}
+
+                    {overheadMs > 0 && (
+                      <div
+                        className="seq-seg overhead"
+                        style={{ width: `${(overheadMs / singleMs) * 100}%` }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="seq-legend">
+                    {timings.map((t, i) => {
+                      const cls = ['a', 'b', 'c'][i] || 'a';
+                      return (
+                        <div key={i} className="legend-item">
+                          <div className={`legend-dot ${cls}`} />
+                          Phase {['A', 'B', 'C'][i]} ({t.source}) — {fmtMs(t.duration_ms)}
+                        </div>
+                      );
+                    })}
+
+                    {overheadMs > 0 && (
+                      <div className="legend-item">
+                        <div className="legend-dot overhead" />
+                        Overhead — {fmtMs(overheadMs)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Phase</th>
+                        <th>Source</th>
+                        <th>Cities</th>
+                        <th>Duration</th>
+                        <th>% of Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {timings.map((t, i) => {
+                        const pct = singleMs
+                          ? ((t.duration_ms / singleMs) * 100).toFixed(1)
+                          : '—';
+                        return (
+                          <tr key={i}>
+                            <td className="city">Phase {['A', 'B', 'C'][i] || i + 1}</td>
+                            <td><span className="tag">{t.source}</span></td>
+                            <td className="num">{t.cities}</td>
+                            <td className="num">{fmtMs(t.duration_ms)}</td>
+                            <td className="num">{pct}%</td>
+                          </tr>
+                        );
+                      })}
+
+                      {overheadMs > 0 && (
+                        <tr>
+                          <td className="city">Overhead</td>
+                          <td><span className="tag">system</span></td>
+                          <td className="num">—</td>
+                          <td className="num">{fmtMs(overheadMs)}</td>
+                          <td className="num">
+                            {((overheadMs / singleMs) * 100).toFixed(1)}%
+                          </td>
+                        </tr>
+                      )}
+
+                      <tr className="total-row">
+                        <td colSpan={3}>Total single worker</td>
+                        <td className="num">{fmtMs(singleMs)}</td>
+                        <td className="num">100%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+
+      {/* What this tells you */}
+      <div className="card">
+        <div className="card-head">
+          <span className="card-title">What This Comparison Tells You</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Workers</th>
+                <th>Execution</th>
+                <th>Time</th>
+                <th>Key insight</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="city">Single worker</td>
+                <td className="num">1</td>
+                <td>All sources, one function</td>
+                <td className="num">{fmtMs(singleMs)}</td>
+                <td>Baseline — no parallelism, no specialization</td>
+              </tr>
+              <tr>
+                <td className="city">Sequential</td>
+                <td className="num">3</td>
+                <td>Specialized, one at a time</td>
+                <td className="num">{fmtMs(seqMs) ?? '—'}</td>
+                <td>Specialization benefit without parallelism</td>
+              </tr>
+              <tr>
+                <td className="city">Parallel</td>
+                <td className="num">3</td>
+                <td>Specialized, simultaneous</td>
+                <td className="num">{fmtMs(parMs) ?? '—'}</td>
+                <td>Full benefit — specialization + parallelism</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────
 // Icons for mobile nav — simple text characters, no emojis
 const TAB_ICONS = {
   benchmark: '≋',
   workers:   '⊞',
+  single:    '◈',
   anomalies: '△',
   archive:   '◷',
 };
 
 const TABS = [
-  { id: 'benchmark', label: 'Benchmark' },
-  { id: 'workers',   label: 'Workers'   },
-  { id: 'anomalies', label: 'Anomalies' },
-  { id: 'archive',   label: 'Archive'   },
+  { id: 'benchmark',    label: 'Benchmark'     },
+  { id: 'workers',      label: 'Workers'       },
+  { id: 'single',       label: 'Single Worker' },
+  { id: 'anomalies',    label: 'Anomalies'     },
+  { id: 'archive',      label: 'Archive'       },
 ];
 
 export default function App() {
@@ -750,6 +996,7 @@ export default function App() {
   const tabTitles = {
     benchmark: { title: 'Parallel vs. Sequential Benchmark', desc: 'Measuring the speedup of running 3 workers simultaneously versus sequentially.' },
     workers:   { title: 'Worker Assignments',                desc: '30 cities split across 3 workers, each calling a different data source. Sequential timing shown per worker.' },
+    single: { title: 'Single Worker Analysis', desc: 'One Lambda processes all 30 cities sequentially across 3 different data sources.' },
     anomalies: { title: 'Weather Anomaly Results',           desc: 'Cities deviating more than 10°F from their 5-year historical average for the same week.' },
     archive:   { title: 'Historical Records',                desc: 'Browse benchmark and anomaly data from previous days.' },
   };
@@ -759,7 +1006,6 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">
-            <div className="brand-mark" />
             Anomaly Detector
           </div>
 
@@ -819,6 +1065,7 @@ export default function App() {
 
         {tab === 'benchmark' && <BenchmarkTab date={date} />}
         {tab === 'workers'   && <WorkersTab   date={date} />}
+        {tab === 'single'    && <SingleWorkerTab date={date} />}
         {tab === 'anomalies' && <AnomalyTab   date={date} />}
         {tab === 'archive'   && <ArchiveTab />}
       </main>
