@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Anomaly Detector v2 - Multi-Source Parallel Processing
+Description: Anomaly Detector - Multi-Source Parallel Processing
 
 Globals:
   Function:

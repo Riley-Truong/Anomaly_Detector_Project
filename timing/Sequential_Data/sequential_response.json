@@ -1,1 +1,6 @@
-{"statusCode": 200, "total_ms": 69279, "timings": [{"worker": "AnomalyDetectorWorkerForecast", "source": "forecast", "cities": 10, "duration_ms": 8106}, {"worker": "AnomalyDetectorWorkerArchive", "source": "archive", "cities": 10, "duration_ms": 35315}, {"worker": "AnomalyDetectorWorkerNWS", "source": "nws", "cities": 10, "duration_ms": 23788}]}
+{"statusCode": 200, "total_ms": 69279, "timings": [
+    {"worker": "AnomalyDetectorWorkerForecast", "source": "forecast", "cities": 10, "duration_ms": 8106}, 
+    {"worker": "AnomalyDetectorWorkerArchive", "source": "archive", "cities": 10, "duration_ms": 35315}, 
+    {"worker": "AnomalyDetectorWorkerNWS", "source": "nws", "cities": 10, "duration_ms": 23788}
+    ]
+}
