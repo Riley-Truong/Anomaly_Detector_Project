@@ -6,7 +6,7 @@ Globals:
   Function:
     Runtime: python3.11
     Timeout: 120
-    MemorySize: 128
+    MemorySize: 1769
 
 Resources:
 
