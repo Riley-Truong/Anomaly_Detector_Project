@@ -1,0 +1,1 @@
+{"statusCode": 200, "total_ms": 67194, "timings": [{"source": "forecast", "cities": 10, "duration_ms": 6950}, {"source": "archive", "cities": 10, "duration_ms": 34800}, {"source": "nws", "cities": 10, "duration_ms": 22940}]}

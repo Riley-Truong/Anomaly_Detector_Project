@@ -1,0 +1,1 @@
+{"statusCode": 200, "total_ms": 77901, "timings": [{"worker": "AnomalyDetectorWorkerForecast", "source": "forecast", "cities": 10, "duration_ms": 7235}, {"worker": "AnomalyDetectorWorkerArchive", "source": "archive", "cities": 10, "duration_ms": 35136}, {"worker": "AnomalyDetectorWorkerNWS", "source": "nws", "cities": 10, "duration_ms": 27651}]}

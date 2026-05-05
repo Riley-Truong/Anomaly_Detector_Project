@@ -1,0 +1,6 @@
+Parallel Data:
+3615.9ms = 3.6 seconds
+Sequential Data:
+70961.9ms = 71 seconds
+Single Worker Data:
+69543.9ms = 69.5 seconds
